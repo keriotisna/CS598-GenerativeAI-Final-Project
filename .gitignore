@@ -1,3 +1,10 @@
+# Ignore data
+/Data/EMNIST/*.txt
+/Data/EMNIST/*.csv
+/Data/EMNIST/emnist_source_files/*-ubyte
+/Data/BRUSH/*
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
