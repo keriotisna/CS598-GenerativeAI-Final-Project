@@ -3,7 +3,8 @@
 /Data/EMNIST/*.csv
 /Data/EMNIST/emnist_source_files/*-ubyte
 /Data/BRUSH/*
-
+/DiffusionData/*
+Data/MNIST/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
