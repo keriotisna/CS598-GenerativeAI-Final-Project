@@ -1,3 +1,4 @@
+import os
 import torch
 import torch.nn as nn
 
@@ -170,7 +171,7 @@ class DDPM(nn.Module):
 
 
 
-def trainDDPM(numClasses: int, epochs: int, batch_size: int, numTimesteps: int, dataset: Dataset):
+def trainDDPM(numClasses: int, epochs: int, batch_size: int, numTimesteps: int, dataset: Dataset, label: str):
     
     
     ######################################################################################################
@@ -203,7 +204,12 @@ def trainDDPM(numClasses: int, epochs: int, batch_size: int, numTimesteps: int, 
     # hardcoding these here
     lr = 1e-4
     save_model = True
-    savePath = './DiffusionData/'
+    
+    savePath = f'./DiffusionData/{label}/'
+    
+    if not os.path.isdir(savePath):
+        os.mkdir(savePath)
+    
     guidanceStrengths = [0.5, 2, 2.5] # strength of generative guidance
     
     # betas was (1e-4, 0.02)
