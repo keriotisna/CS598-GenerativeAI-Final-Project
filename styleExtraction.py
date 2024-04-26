@@ -2,15 +2,10 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader, Dataset, Subset
 
-import torchvision
-from torchvision.io import read_image
-from torchvision.utils import make_grid
-from torchvision import transforms
-
 import matplotlib.pyplot as plt
 
 from sklearn.decomposition import PCA
-from sklearn.cluster import KMeans
+from sklearn.cluster import KMeans, SpectralClustering
 from sklearn.manifold import Isomap
 from collections import defaultdict
 
@@ -59,13 +54,17 @@ def getClusterDataForLetters(trainset:Dataset, numClusters=12, gridSize=5, numCl
         # pca = PCA(n_components=50)
         # features = pca.fit_transform(flat_images)
 
-        isomap = Isomap(n_components=50, n_jobs=-1, n_neighbors=20)
+        isomap = Isomap(n_components=20, n_jobs=-1, n_neighbors=20)
         features = isomap.fit_transform(flatImages)
         
         # Cluster the data points
         kmeans = KMeans(n_clusters=numClusters, random_state=42)
         clusterLabels = kmeans.fit_predict(features)
-        
+
+        # Really uneven clusters
+        # spectralClusters = SpectralClustering(n_clusters=numClusters, random_state=42)
+        # clusterLabels = spectralClusters.fit_predict(features)
+
         clusterPopulations = []
         
         # Display samples from each cluster in a 4x4 grid
@@ -78,7 +77,7 @@ def getClusterDataForLetters(trainset:Dataset, numClusters=12, gridSize=5, numCl
             if not showPlots:
                 continue
             
-            clusterSamples = np.random.choice(originalIndices, size=sampleCount, replace=False)
+            clusterSamples = np.random.choice(originalIndices, size=sampleCount, replace=True)
             
             ax = axs[letterIdx-1, cluster]
             ax.axis('off')

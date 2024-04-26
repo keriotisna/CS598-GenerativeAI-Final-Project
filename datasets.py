@@ -75,7 +75,6 @@ def createSubsets(dataset, clusterData, transform):
     """
     
     subsets = {}
-    device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
 
     for label, originalIndices in clusterData.items():
         
@@ -93,8 +92,8 @@ def createSubsets(dataset, clusterData, transform):
             ALL_DATA.append(stackedFeatures)
             ALL_LABELS.append(stackedLabels)
 
-        ALL_DATA_COMBINED = torch.concat(ALL_DATA, dim=0).to(device)
-        ALL_LABELS_COMBINED = torch.concat(ALL_LABELS, dim=0).to(device)
+        ALL_DATA_COMBINED = torch.concat(ALL_DATA, dim=0)
+        ALL_LABELS_COMBINED = torch.concat(ALL_LABELS, dim=0)
         
         clusterSet = ClusterDataset(features=ALL_DATA_COMBINED, labels=ALL_LABELS_COMBINED, transform=transform)
         
@@ -103,7 +102,7 @@ def createSubsets(dataset, clusterData, transform):
     return subsets
 
 
-def getFullDataset(transform=None):
+def getFullDataset():
     
     """
     Gets and combines the training, validation and test datasets into a single larger dataset that can be used
