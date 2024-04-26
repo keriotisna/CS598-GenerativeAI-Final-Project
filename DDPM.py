@@ -210,7 +210,7 @@ def trainDDPM(numClasses: int, epochs: int, batch_size: int, numTimesteps: int, 
     if not os.path.isdir(savePath):
         os.mkdir(savePath)
     
-    guidanceStrengths = [0.5, 2, 2.5] # strength of generative guidance
+    guidanceStrengths = [0, 0.25, 1, 2, 3] # strength of generative guidance
     
     # betas was (1e-4, 0.02)
     ddpm = DDPM(model=UNet(numClasses=numClasses), betas=(1e-5, 0.04), numTimesteps=numTimesteps, dropoutRate=0.5, device=device, numClasses=numClasses)

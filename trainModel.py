@@ -20,18 +20,18 @@ torch.autograd.profiler.profile(False)
 
 def main():
 
-    numClusters = 12
+    numClusters = 8
 
     # Get a combined train and test set since validation is for losers
     trainset = getFullDataset()
 
     # Get formatted information about what data indices belong to what cluster
-    CLUSTER_DATA = getClusterDataForLetters(trainset=trainset, numClusters=numClusters, showPlots=False, numClasses=3)
+    CLUSTER_DATA = getClusterDataForLetters(trainset=trainset, numClusters=numClusters, showPlots=False, numClasses=26)
 
     # TODO: Try more transforms
     randomRotation = transforms.RandomApply([transforms.RandomRotation((-15, 15))])
     transform = transforms.Compose([
-        # transforms.ToTensor()
+        # transforms.ToTensor() # Dataset already appears to be in Tensor format
         # transforms.Normalize((0.5,), (0.5,)),
         transforms.RandomAdjustSharpness(2),
         randomRotation
@@ -40,7 +40,10 @@ def main():
     # Create individual data subsets for each cluster
     subsets = createSubsets(trainset, CLUSTER_DATA, transform=transform)
     
-    for i in range(1, len(subsets)+1):
+    START_LETTER = 1
+    END_LETTER = 4
+    
+    for i in range(START_LETTER, END_LETTER+1):
     
         letterSubset = subsets[i]
         # Generate an image displaying all clusters of letters
@@ -63,7 +66,7 @@ def main():
 
         # Start training for one cluster
         startTime = time.time()
-        trainDDPM(numClasses=numClusters, epochs=300, batch_size=512, numTimesteps=500, dataset=letterSubset, label=EMNISTDataset.intToStrDict[i])
+        trainDDPM(numClasses=numClusters, epochs=800, batch_size=512, numTimesteps=500, dataset=letterSubset, label=EMNISTDataset.intToStrDict[i])
 
         print(f'Training finished after {time.time()-startTime}')
 
