@@ -42,10 +42,16 @@ MODEL_BATCHES = [
     #     'modelName': 'Large',
     # }
     
+    # {
+    #     'model': UNetDeep(numClasses=numClusters),
+    #     'batch_size': 128,
+    #     'modelName': 'Deep',
+    # },
+    
     {
-        'model': UNetDeep(numClasses=numClusters),
-        'batch_size': 128,
-        'modelName': 'Deep',
+        'model': UNetDeep2(numClasses=numClusters),
+        'batch_size': 256,
+        'modelName': 'Deep2',
     }
 ]
 
@@ -99,7 +105,7 @@ def main():
             # Start training for one cluster
             startTime = time.time()
             
-            trainDDPM(model=model, numClasses=numClusters, epochs=800, batch_size=batch_size, numTimesteps=500, dataset=letterSubset, label=modelLabel, transform=transform)
+            trainDDPM(model=model, numClasses=numClusters, epochs=800, batch_size=batch_size, numTimesteps=500, dataset=letterSubset, label=modelLabel, transform=transform, betas=(1e-4, 0.02))
 
             print(f'Training finished after {time.time()-startTime}')
 

@@ -33,7 +33,7 @@ def getAugmentedFontSamples(fontNum, letterNum, transform, numSamples, showPlots
 
     newSamples = []
 
-    for _ in range(500):
+    for _ in range(numSamples):
         transformed = transform(sample_tensor)
         newSamples.append(transformed)
         

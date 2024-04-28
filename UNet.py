@@ -140,13 +140,20 @@ class UNetDownsample(nn.Module):
     def __init__(self, in_channels, out_channels, activation=nn.GELU()):
         super(UNetDownsample, self).__init__()
 
-        self.conv1 = nn.Sequential(
-            ResidualBlock3(in_channels=in_channels, out_channels=out_channels, activation=activation),
-            nn.MaxPool2d(kernel_size=2, stride=2)
-        )
+        # self.conv1 = nn.Sequential(
+        #     ResidualBlock3(in_channels=in_channels, out_channels=out_channels, activation=activation),
+        #     nn.MaxPool2d(kernel_size=2, stride=2)
+        # )
+        
+        self.conv1 = ResidualBlock3(in_channels=in_channels, out_channels=out_channels, activation=activation)
+        self.down = nn.MaxPool2d(kernel_size=2, stride=2)
     
     def forward(self, x):
-        return self.conv1(x)
+        
+        conv1Out = self.conv1(x)
+        downOut = self.down(conv1Out)
+        
+        return downOut + self.down(x)
 
 
 class UNetUpsample(nn.Module):
@@ -198,11 +205,13 @@ class UNetUpsample(nn.Module):
             conv1Out: (B, out_channels, 2N, 2N)
         """
         
+        # Reshape times and class labels for proper input into the encoders
         if self.includeEmbeddings and times is not None and classLabels is not None:
             timeEmbedding = self.timeEncoder(times.view(-1, 1)).view(-1, x.shape[1], 1, 1)
             classEmbedding = self.classEncoder(classLabels).view(-1, x.shape[1], 1, 1)
         
-            x = x*classEmbedding + timeEmbedding
+
+            x = x * classEmbedding + timeEmbedding
         
         if self.residual_channels > 0:
             x = torch.concat((x, residualInput), dim=1)
@@ -210,13 +219,7 @@ class UNetUpsample(nn.Module):
         conv1Out = self.conv1(x)
         
         return conv1Out
-
-
-
-
-
-
-
+    
 
 class UNetMedium(nn.Module):
     
@@ -785,6 +788,128 @@ class UNetDeep(nn.Module):
         # print(f'{up1Out.shape=}')
 
         return self.consolidate(up1Out)
+
+
+
+# Fewer layers than UNetDeep, but with the same latent size
+class UNetDeep2(nn.Module):
+    
+    def __init__(self, numClasses=10):
+        super(UNetDeep2, self).__init__()
+        
+        
+        self.numClasses = numClasses
+        
+        self.conv1 = nn.Sequential(
+            ResidualBlock3(in_channels=1, out_channels=64),
+            ResidualBlock3(in_channels=64, out_channels=128),
+            ResidualBlock3(in_channels=128, out_channels=256),
+        )
+        
+        # Define down and up blocks next to each other so we can track channels easier
+        self.down1 = nn.Sequential(
+            UNetDownsample(in_channels=256, out_channels=256),
+            ResidualBlock3(in_channels=256, out_channels=512),
+        )
+
+
+        self.down2 = nn.Sequential(
+            UNetDownsample(in_channels=512, out_channels=512),
+            ResidualBlock3(in_channels=512, out_channels=1024),
+        )
+
+        self.down3 = nn.Sequential(
+            UNetDownsample(in_channels=1024, out_channels=1024),
+            ResidualBlock3(in_channels=1024, out_channels=2048),
+        )
+
+        # TODO: Try some normalization here, can't get the shapes to align right now
+        self.vectorize = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1),
+            nn.BatchNorm2d(num_features=2048),
+            # nn.Flatten(),
+            # nn.LayerNorm(normalized_shape=2*FC),
+            nn.GELU()
+        )
+
+        # This is just decoding from vector images to a new spatial representation, no conditioning or anything
+        self.up0 = UNetUpsample(input_channels=2048, residual_channels=0, out_channels=2048, kernel_size=3, stride=3, includeEmbeddings=True, numClasses=numClasses, numPostResiduals=1)
+        self.up3 = UNetUpsample(input_channels=2048, residual_channels=2048, out_channels=1024, kernel_size=3, includeEmbeddings=True, numClasses=numClasses, numPostResiduals=1)
+        self.up2 = UNetUpsample(input_channels=1024, residual_channels=1024, out_channels=512, includeEmbeddings=True, numClasses=numClasses, numPostResiduals=1)
+        self.up1 = UNetUpsample(input_channels=512, residual_channels=512, out_channels=256, includeEmbeddings=True, numClasses=numClasses, numPostResiduals=1)
+
+
+        self.consolidate = nn.Sequential(
+            nn.Conv2d(in_channels=256, out_channels=128, kernel_size=3, stride=1, padding=1),
+            nn.GroupNorm(num_groups=8, num_channels=128),
+            nn.ReLU(),
+            
+            nn.Conv2d(in_channels=128, out_channels=64, kernel_size=3, stride=1, padding=1),
+            nn.GroupNorm(num_groups=8, num_channels=64),
+            nn.ReLU(),
+            
+            nn.Conv2d(in_channels=64, out_channels=1, kernel_size=3, stride=1, padding=1),
+        )
+
+
+    def forward(self, x:torch.Tensor, classLabels:torch.Tensor, 
+                timesteps:torch.Tensor, classMask:torch.Tensor):
+        
+        """
+        classLabels: (B,) tensor of one-hot class labels
+        timesteps: (B,) tensor of integer? timesteps
+        classMask: (B,) tensor of integers
+        """
+        
+        oneHotClass = F.one_hot(classLabels, num_classes=self.numClasses)
+        
+        classMask = classMask[:, None].to(torch.bool)
+        classMask = ~classMask
+        classMask = classMask.repeat(1, self.numClasses).to(torch.float32)
+        
+        oneHotClass = oneHotClass * classMask
+        
+        # Output is (B, 128, 28, 28)
+        conv1Out = self.conv1(x)
+        # print(f'{conv1Out.shape=}')
+
+        # Output is (B, 128, 14, 14)
+        down1Out = self.down1(conv1Out)
+        # print(f'{down1Out.shape=}')
+
+        # Output is (B, 256, 7, 7)
+        down2Out = self.down2(down1Out)
+        # print(f'{down2Out.shape=}')
+        
+        # Output is (B, 512, 3, 3)
+        down3Out = self.down3(down2Out)
+        # print(f'{down3Out.shape=}')
+
+
+        # Output is (B, 512, 1, 1)
+        vectorImage = self.vectorize(down3Out)
+        # print(f'{vectorImage.shape=}')
+
+        # Output is (B, 512, 3, 3)
+        up0Out = self.up0.forward(vectorImage, times=timesteps, classLabels=oneHotClass)
+        # print(f'{up0Out.shape=}')
+
+
+        up3Out = self.up3.forward(up0Out, times=timesteps, classLabels=oneHotClass, residualInput=down3Out)
+        # print(f'{up3Out.shape=}')
+
+        up2Out = self.up2.forward(up3Out, times=timesteps, classLabels=oneHotClass, residualInput=down2Out)
+        # print(f'{up2Out.shape=}')
+
+        up1Out = self.up1.forward(up2Out, times=timesteps, classLabels=oneHotClass, residualInput=down1Out)
+        # print(f'{up1Out.shape=}')
+
+        return self.consolidate(up1Out)
+
+
+
+
+
 
 
 
