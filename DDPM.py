@@ -63,19 +63,6 @@ class DDPM(nn.Module):
         
         # This is used in equation 11 of the paper, it represents how much noise is in the current sample at a given timestep
         betasOverSqrtComplimentAlphaBar = betas / sqrtComplimentAlphaBar
-
-        # varDict = {
-        #     'alphas': alphas,
-        #     'oneOverSqrtAlphas': oneOverSqrtAlphas,
-        #     'sqrtBetas': sqrtBetas,
-        #     'alphaBar': alphaBar,
-        #     'sqrtComplimentAlphaBar': sqrtComplimentAlphaBar,
-        #     'betasOverSqrtComplimentAlphaBar': betasOverSqrtComplimentAlphaBar
-        # }
-        
-        # # Save beta values in the model itself for access to them during the forward pass.
-        # for key, value in varDict.items():
-        #     self.register_buffer(key, value)
         
         self.alphas = alphas.to(device)
         self.oneOverSqrtAlphas = oneOverSqrtAlphas.to(device)
@@ -110,7 +97,11 @@ class DDPM(nn.Module):
     
     
     
-    def sample(self, numSamples, sampleSize, classifierGuidance=0.5):
+    def sample(self, numSamples, sampleSize, classifierGuidance=0.5, classLabels:torch.Tensor=None):
+        
+        if classLabels is None:
+            # NOTE: Changed from 0 to self.numClasses
+            classLabels = torch.arange(0, self.numClasses).to(self.device)
         
         # Define the shape of noisy samples to start the denoising process
         noiseShape = (numSamples, *sampleSize)
@@ -118,10 +109,10 @@ class DDPM(nn.Module):
         # Start out our samples as pure noise
         noisySamples = torch.randn(*noiseShape).to(self.device)
         
-        classLabels = torch.arange(0, self.numClasses).to(self.device)
+        
         classLabels = classLabels.repeat(int(numSamples/classLabels.shape[0])) # TODO: WHAT THE FUCK IS THIS
         classLabels = classLabels.repeat(2)
-
+        
         # Create a class mask of 0s in the first half and 1s in the second half.
         # We will use this for CFG where we want the model to learn without the class label
         classMask = torch.zeros(classLabels.shape).to(self.device)
@@ -135,7 +126,7 @@ class DDPM(nn.Module):
             
             noisySamples = noisySamples.repeat(2,1,1,1)
             currentTimestep = currentTimestep.repeat(2,1,1,1)
-
+            
             # Get model predictions for noise when given class labels and times
             predictedNoise = self.model(noisySamples, classLabels, currentTimestep, classMask)
             
@@ -143,12 +134,12 @@ class DDPM(nn.Module):
             # in the directions of guided samples
             unguidedNoisePredictions = predictedNoise[numSamples:]
             guidedNoisePredictions = predictedNoise[:numSamples]
-
+            
             # We say the real predicted noise is noise pushed in the direction of the guided samples as opposed to the
             # unguided predictions. This helps improve the performance of the diffusion process at the cost of potentially
             # generating worse samples if the guidance isn't tuned properly.
             predictedNoise = (1+classifierGuidance)*guidedNoisePredictions - classifierGuidance*unguidedNoisePredictions
-
+            
             
             # Create random noise for sample denoising
             z = torch.randn(*noiseShape).to(self.device) if time > 1 else 0
@@ -171,37 +162,13 @@ class DDPM(nn.Module):
 
 
 
-def trainDDPM(numClasses: int, epochs: int, batch_size: int, numTimesteps: int, dataset: Dataset, label: str):
+def trainDDPM(model, numClasses: int, epochs: int, batch_size: int, numTimesteps: int, dataset: Dataset, label: str, transform=None):
     
     
-    ######################################################################################################
-    # Verify model shape
     device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
-
-    BATCH_SIZE = 16
-    INPUT_SIZE = (BATCH_SIZE, 1, 28, 28)
-
-    randomLabels = torch.randint(0, numClasses, (BATCH_SIZE,)).to(device)
-    randomTimes = torch.randint(0, 100, (BATCH_SIZE,)).to(device).to(torch.float32)
-    classMasks = torch.ones((BATCH_SIZE,)).to(device)
-
-    dummyInput = torch.rand(INPUT_SIZE).to(device)
-
-    module = UNet(numClasses=numClasses)
-
-    # Create an instance of the nn.module class defined above:
-    module = module.to(device)
-
-    output = module.forward(dummyInput, randomLabels, randomTimes, classMasks)
-    if output is not None:
-        print(output.shape)
-        
-    del module, randomLabels, randomTimes, classMasks
-    ######################################################################################################
     
     # Enable or disable automatic mixed precision for faster training
     USE_AMP = True
-    # hardcoding these here
     lr = 1e-4
     save_model = True
     
@@ -210,20 +177,23 @@ def trainDDPM(numClasses: int, epochs: int, batch_size: int, numTimesteps: int, 
     if not os.path.isdir(savePath):
         os.mkdir(savePath)
     
-    guidanceStrengths = [0, 0.25, 1, 2, 3] # strength of generative guidance
+    # CFG Guidance strength
+    guidanceStrengths = [0, 1, 2]
     
     # betas was (1e-4, 0.02)
-    ddpm = DDPM(model=UNet(numClasses=numClasses), betas=(1e-5, 0.04), numTimesteps=numTimesteps, dropoutRate=0.5, device=device, numClasses=numClasses)
+    # (1e-5, 0.04) and dropout 0.5 looked pretty noisy
+    betas = (1e-4, 0.02)
+    ddpm = DDPM(model=model, betas=betas, numTimesteps=numTimesteps, dropoutRate=0.4, device=device, numClasses=numClasses)
     ddpm.to(device)
 
-    # optionally load a model
+    # Load individual models if we need to
     # ddpm.load_state_dict(torch.load("./data/diffusion_outputs/ddpm_unet01_mnist_9.pth"))
 
     # TODO: Try different optimizers
-    
+    # NOTE: DO NOT CHANGE num_workers>0 OR THE MODEL WON'T FUCKING TRAIN!!!!. WHY THE FUCK DOES THIS HAPPEN???!??!?!??!?!??!?!??!??!?!!!??!??!?!?
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=0, pin_memory=False) # With pin_memory=False, speed is 6.4s/it; With pin_memory=True, speed is about the same
     optim = torch.optim.Adam(ddpm.parameters(), lr=lr)
-    lrScheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer=optim, factor=0.5, patience=40, cooldown=40)
+    lrScheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer=optim, factor=0.75, patience=40, cooldown=40)
 
     scaler = torch.cuda.amp.GradScaler(enabled=USE_AMP)
 
@@ -235,8 +205,10 @@ def trainDDPM(numClasses: int, epochs: int, batch_size: int, numTimesteps: int, 
         newLR = optim.param_groups[0]['lr']
 
         for features, labels in dataloader:
-            features = features.to(device)
-            labels = labels.to(device)
+            
+            # Apply transform manually on the GPU
+            features = transform(features)
+            labels = labels
 
             for param in ddpm.parameters():
                 param.grad = None
@@ -249,46 +221,43 @@ def trainDDPM(numClasses: int, epochs: int, batch_size: int, numTimesteps: int, 
             torch.nn.utils.clip_grad_norm_(ddpm.parameters(), max_norm=5)
             scaler.step(optim)
             scaler.update()
-
-
-            # optim.zero_grad()
-            # loss = ddpm(features, labels)
-            # loss.backward()
-            # nn.utils.clip_grad_norm_(ddpm.parameters(), max_norm=1)
-            # optim.step()
             
             pbar.set_description(f"loss: {loss.item():.4f}, lr: {newLR:.6f}")
 
         lrScheduler.step(loss.item())
 
-        if ep%200==0 or ep == int(epochs-1):
+        if (ep%200==0 or ep == int(epochs-1)) and ep != 0:
             ddpm.eval()
             with torch.no_grad():
                 numRows = 4
-                n_sample = numRows*numClasses
+                totalSamples = numRows * numClasses
                 for w_i, w in enumerate(guidanceStrengths):
-                    x_gen, x_gen_store = ddpm.sample(n_sample, (1, 28, 28), classifierGuidance=w)
+                    x_gen, x_gen_store = ddpm.sample(totalSamples, (1, 28, 28), classifierGuidance=w)
 
-                    # append some real images at bottom, order by class also
+                    # Append real samples at the bottom
                     x_real = torch.Tensor(x_gen.shape).to(device)
                     for k in range(numClasses):
-                        for j in range(int(n_sample/numClasses)):
+                        for j in range(int(totalSamples/numClasses)):
                             try: 
                                 idx = torch.squeeze((labels == k).nonzero())[j]
                             except:
                                 idx = 0
-                            x_real[k+(j*numClasses)] = features[idx]
+                            x_real[k + (j * numClasses)] = features[idx]
 
-                    x_all = torch.cat([x_gen, x_real])
-                    grid = make_grid(-x_all+1, nrow=numClasses)
-                    save_image(grid, savePath + f"image_ep{ep}_w{w}.png")
-                    print('saved image at ' + savePath + f"image_ep{ep}_w{w}.png")
+                    dataSuffix = f'{label}-ep-{ep}_w-{w}_nc-{numClasses}_ts-{numTimesteps}'
+                    allSamples = torch.cat([x_gen, x_real])
+                    grid = make_grid(-allSamples+1, nrow=numClasses)
+                    imageName = f"{dataSuffix}.png"
+                    save_image(grid, savePath + imageName)
+                    print('Saved ' + savePath + imageName)
 
-                    fig, axs = plt.subplots(nrows=int(n_sample/numClasses), ncols=numClasses,sharex=True,sharey=True,figsize=(8,3))
-                    def animate_diff(i, x_gen_store):
+                    fig, axs = plt.subplots(nrows=int(totalSamples/numClasses), ncols=numClasses,sharex=True,sharey=True,figsize=(8,3))
+                    
+                    # TODO: Move this somewhere else, it's really weird to have it here
+                    def animateGif(i, x_gen_store):
                         print(f'gif animating frame {i} of {x_gen_store.shape[0]}', end='\r')
                         plots = []
-                        for row in range(int(n_sample/numClasses)):
+                        for row in range(int(totalSamples/numClasses)):
                             for col in range(numClasses):
                                 axs[row, col].clear()
                                 axs[row, col].set_xticks([])
@@ -296,17 +265,18 @@ def trainDDPM(numClasses: int, epochs: int, batch_size: int, numTimesteps: int, 
                                 # plots.append(axs[row, col].imshow(x_gen_store[i,(row*n_classes)+col,0],cmap='gray'))
                                 plots.append(axs[row, col].imshow(-x_gen_store[i,(row*numClasses)+col,0],cmap='gray',vmin=(-x_gen_store[i]).min(), vmax=(-x_gen_store[i]).max()))
                         return plots
-                    ani = FuncAnimation(fig, animate_diff, fargs=[x_gen_store],  interval=200, blit=False, repeat=True, frames=x_gen_store.shape[0])    
-                    ani.save(savePath + f"gif_ep{ep}_w{w}.gif", dpi=100, writer=PillowWriter(fps=5))
-                    print('saved image at ' + savePath + f"gif_ep{ep}_w{w}.gif")
+                    ani = FuncAnimation(fig, animateGif, fargs=[x_gen_store], interval=200, blit=False, repeat=True, frames=x_gen_store.shape[0])    
+                    gifName = f"{dataSuffix}.gif"
+                    ani.save(savePath + gifName, dpi=100, writer=PillowWriter(fps=5))
+                    print('Saved ' + savePath + gifName)
                     plt.close('all')
                     print()
                     
         # optionally save model
-        if save_model and ep == int(epochs-1):
-            torch.save(ddpm.state_dict(), savePath + f"model_{ep}.pth")
-            print('saved model at ' + savePath + f"model_{ep}.pth")
-    
+        if save_model and ep == epochs-1:
+            modelName = f"model-{dataSuffix}.pth"
+            torch.save(ddpm.state_dict(), savePath + modelName)
+
 
 
 def main():

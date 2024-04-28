@@ -2,31 +2,151 @@ import torch
 from torch.utils.data import DataLoader, Dataset, Subset
 import pandas as pd
 
-
+import torchvision
+from torchvision.utils import make_grid
+import numpy as np
 
 
 class ClusterDataset(Dataset):
     
     """
     A dataset meant to hold a single letter from EMNIST with subcategories as stylistic clusters
+    
+    Arguments:
+        features: A (N, 1, 28, 28) grayscale image tensor
+        labels: A (N,) tensor holding style labels for each image
     """
     
-    def __init__(self, features, labels, transform=None):
+    def __init__(self, features: torch.Tensor, labels: torch.Tensor):
         
-        self.features = features
-        self.labels = labels
-        
-        self.transform = transform
+
+        device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+
+        # Send these to the GPU so they can be accessed immediately
+        # Features is (N, C, 28, 28)
+        self.features = features.to(device)
+        self.labels = labels.to(device)
         
     def __len__(self):
         return len(self.features)
     
     def __getitem__(self, idx):
-        if self.transform is not None:
-            return self.transform(self.features[idx, ...]), self.labels[idx]
-        else:
-            return self.features[idx, ...], self.labels[idx]
+        # This still seems to make things to to the CPU because it's a lot slower still
+        # with torch.cuda.device('cuda:0'):
+        # if self.transform is not None:
+        #     return self.transform(self.features[idx, ...]), self.labels[idx]
+        # else:
+        return self.features[idx, ...], self.labels[idx]
+        
+        
+    def addSamplesToData(self, newFeatures:torch.Tensor, newLabels:torch.Tensor):
+    
+        """
+        Adds new samples and their corresponding labels to the existing dataset.
+        
+        newFeatures should have shape (N, 1, 28, 28) for the EMNIST dataset
+        newLabels should have shape (N,)
+        """
+    
+        assert newFeatures.shape[0] == newLabels.shape[0]
+    
+        features, labels = self.getFeaturesAndLabels()
+    
+        newFeatures = torch.concat((features, newFeatures), dim=0)
+        newLabels = torch.concat((labels, newLabels), dim=0)
+    
+        self.setFeaturesAndLabels(newFeatures, newLabels)
+    
+    
+    def getFeaturesAndLabels(self):
+        
+        """
+        Return features and labels for interaction on the CPU
+        """
+        
+        return self.features.detach_().cpu(), self.labels.detach_().cpu()
+    
+    def setFeaturesAndLabels(self, features: torch.Tensor, labels: torch.Tensor):
+        
+        """
+        Sets features and labels while also sending data back to GPU
+        """
+        
+        device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+        
+        self.features = features.to(device)
+        self.labels = labels.to(device)
 
+    
+    def visualizeClusterDataset(self):
+        
+        """
+        Visualize an entire ClusterDataset showing the individual samples in their clusters.
+        """
+        
+        features, labels = self.getFeaturesAndLabels()
+        
+        # Generate an image displaying all clusters of letters
+        clusterImages = []
+        for clusterNum in range(len(torch.unique(labels))):
+            currentFeatures = features[labels == clusterNum]
+            grid = make_grid(currentFeatures, nrow=int(np.sqrt(currentFeatures.shape[0])), normalize=True)
+            
+            t = torchvision.transforms.Compose([
+                torchvision.transforms.Resize((512, 512))
+            ])
+            
+            # grid is (3, 28, 28) so average to get grayscale
+            clusterImages.append(torch.mean(t(grid), dim=0))
+            
+        fullImage = torch.stack(clusterImages, dim=0).unsqueeze(1)
+        newGrid = make_grid(fullImage, nrow=len(clusterImages)//2, normalize=True)
+        img = torchvision.transforms.ToPILImage()(newGrid)
+        img.show()
+    
+    
+    def normalizeData(self, transform:torchvision.transforms):
+        
+        """
+        Normalize data in the dataset based on the provided transform
+        """
+        
+        features, labels = self.getFeaturesAndLabels()
+        
+        # Transform all the features, then zero mean and unit variance
+        features = transform(features)
+        
+        mean = torch.mean(features)
+        std = torch.std(features)
+        
+        normFeatures = features - mean
+        normFeatures = normFeatures/std
+        
+        self.setFeaturesAndLabels(normFeatures, labels)
+        
+        return mean, std
+    
+    
+    # def setTransform(self, transform:torchvision.transforms):
+        
+    #     """
+    #     Set the transform for the current dataset. This also accounts for normalization
+    #     """
+        
+    #     if transform is None:
+    #         self.transform = None
+    #         return
+        
+    #     mean, std = self._getNormalization(transform=transform)
+        
+    #     normTransform = torchvision.transforms.Compose(
+    #         transform.transforms #+
+    #         # Normalize before setting as the main transform
+    #         # [torchvision.transforms.Normalize(mean=mean, std=std)]
+    #     )
+        
+    #     self.transform = normTransform
+        
 
 
 class EMNISTDataset(Dataset):
@@ -67,7 +187,7 @@ class EMNISTDataset(Dataset):
     
 
 
-def createSubsets(dataset, clusterData, transform):
+def createSubsets(dataset, clusterData) -> dict[ClusterDataset]:
     
     """
     Breaks a formatted CLUSTER_DATA dictionary into separate datasets with new indices
@@ -95,7 +215,7 @@ def createSubsets(dataset, clusterData, transform):
         ALL_DATA_COMBINED = torch.concat(ALL_DATA, dim=0)
         ALL_LABELS_COMBINED = torch.concat(ALL_LABELS, dim=0)
         
-        clusterSet = ClusterDataset(features=ALL_DATA_COMBINED, labels=ALL_LABELS_COMBINED, transform=transform)
+        clusterSet = ClusterDataset(features=ALL_DATA_COMBINED, labels=ALL_LABELS_COMBINED)
         
         subsets[label] = clusterSet
     

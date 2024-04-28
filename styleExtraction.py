@@ -13,7 +13,7 @@ from datasets import EMNISTDataset
 
 
 
-def getClusterDataForLetters(trainset:Dataset, numClusters=12, gridSize=5, numClasses=26, showPlots=False):
+def getClusterDataForLetters(trainset:EMNISTDataset, numClusters=12, gridSize=5, targetClasses=np.arange(start=1, stop=28), showPlots=False, getMappingInfo=False):
 
 
     """
@@ -35,14 +35,20 @@ def getClusterDataForLetters(trainset:Dataset, numClusters=12, gridSize=5, numCl
     }
     '''
     CLUSTER_DATA = defaultdict(list)
+    # Holds clustering information for each letter
+    CLUSTERINGS = {}
+    # Holds dimensionality reduction methods for each letter
+    REDUCTIONS = {}
 
     sampleCount = gridSize**2
 
+    numClasses = len(targetClasses)
+
     width = 2*numClusters
     if showPlots:
-        fig, axs = plt.subplots(26, numClusters, figsize=(width, 2*width))
+        fig, axs = plt.subplots(numClasses, numClusters, figsize=(width, 2*width))
     
-    for letterIdx in range(1, numClasses+1):
+    for letterIdx in targetClasses:
         # Filter images and labels for the current letter
         letterIndices = np.where(trainset.labels == letterIdx)[0]
         letterImages = trainset.images[letterIndices]
@@ -64,6 +70,9 @@ def getClusterDataForLetters(trainset:Dataset, numClusters=12, gridSize=5, numCl
         # Really uneven clusters
         # spectralClusters = SpectralClustering(n_clusters=numClusters, random_state=42)
         # clusterLabels = spectralClusters.fit_predict(features)
+
+        CLUSTERINGS[letterIdx] = kmeans
+        REDUCTIONS[letterIdx] = isomap
 
         clusterPopulations = []
         
@@ -98,4 +107,7 @@ def getClusterDataForLetters(trainset:Dataset, numClusters=12, gridSize=5, numCl
         plt.tight_layout()
         plt.show()
         
-    return CLUSTER_DATA
+    if getMappingInfo:
+        return CLUSTER_DATA, CLUSTERINGS, REDUCTIONS
+    else:
+        return CLUSTER_DATA

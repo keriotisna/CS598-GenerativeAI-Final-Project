@@ -10,6 +10,7 @@ import numpy as np
 from datasets import *
 from styleExtraction import *
 from DDPM import trainDDPM
+from UNet import *
 
 torch.backends.cudnn.benchmark = True
 
@@ -18,57 +19,82 @@ torch.autograd.set_detect_anomaly(False)
 torch.autograd.profiler.emit_nvtx(False)
 torch.autograd.profiler.profile(False)
 
+
+numClusters = 8
+
+MODEL_BATCHES = [
+    {
+        'model': UNetTiny(numClasses=numClusters),
+        'batch_size': 1024,
+        'modelName': 'Tiny',
+    },
+    
+    {
+        'model': UNetMedium(numClasses=numClusters),
+        'batch_size': 512,
+        'modelName': 'Medium',
+    },
+    
+    {
+        'model': UNetLarge(numClasses=numClusters),
+        'batch_size': 512,
+        'modelName': 'Large',
+    }
+]
+
+
+
 def main():
 
-    numClusters = 8
-
+    
     # Get a combined train and test set since validation is for losers
     trainset = getFullDataset()
 
+    targetClasses = np.arange(start=1, stop=2)
+
     # Get formatted information about what data indices belong to what cluster
-    CLUSTER_DATA = getClusterDataForLetters(trainset=trainset, numClusters=numClusters, showPlots=False, numClasses=26)
-
-    # TODO: Try more transforms
-    randomRotation = transforms.RandomApply([transforms.RandomRotation((-15, 15))])
-    transform = transforms.Compose([
-        # transforms.ToTensor() # Dataset already appears to be in Tensor format
-        # transforms.Normalize((0.5,), (0.5,)),
-        transforms.RandomAdjustSharpness(2),
-        randomRotation
-    ])
-
+    CLUSTER_DATA = getClusterDataForLetters(trainset=trainset, numClusters=numClusters, showPlots=False, targetClasses=targetClasses)
+    
     # Create individual data subsets for each cluster
-    subsets = createSubsets(trainset, CLUSTER_DATA, transform=transform)
+    subsets = createSubsets(trainset, CLUSTER_DATA)
     
-    START_LETTER = 1
-    END_LETTER = 4
     
-    for i in range(START_LETTER, END_LETTER+1):
+    for params in MODEL_BATCHES:
     
-        letterSubset = subsets[i]
-        # Generate an image displaying all clusters of letters
-        clusterImages = []
-        for clusterNum in range(len(CLUSTER_DATA[1])):
-            currentFeatures = letterSubset.features[letterSubset.labels == clusterNum]
-            grid = make_grid(currentFeatures, nrow=int(np.sqrt(currentFeatures.shape[0])), normalize=True)
+        model = params['model']
+        batch_size = params['batch_size']
+        modelName = params['modelName']
+    
+        print(f'Training model {modelName}')
+    
+        validateModelIO(model=model, numClasses=numClusters)
+
+        for letterNumber in subsets.keys():
             
-            t = transforms.Compose([
-                transforms.Resize((512, 512))
+            modelLabel = f'{modelName}-{EMNISTDataset.intToStrDict[letterNumber]}'
+            
+            letterSubset: ClusterDataset
+            letterSubset = subsets[letterNumber]
+            
+            # TODO: Try more transforms
+            randomRotation = transforms.RandomApply([transforms.RandomRotation((-10, 10))])
+            randomBlur = transforms.RandomApply([transforms.GaussianBlur(kernel_size=5, sigma=(0.3, 0.6))], p=0.25)
+            transform = transforms.Compose([
+                randomRotation,
+                randomBlur,
+                transforms.RandomAffine(degrees=(0, 0), translate=(0.05, 0.1), scale=(0.9, 1.1)),
+                transforms.Resize((28, 28)),
             ])
             
-            # grid is (3, 28, 28) so average to get grayscale
-            clusterImages.append(torch.mean(t(grid), dim=0))
+            letterSubset.normalizeData(transform)
+            letterSubset.visualizeClusterDataset()
 
-        fullImage = torch.stack(clusterImages, dim=0).unsqueeze(1)
-        newGrid = make_grid(fullImage, nrow=len(clusterImages)//2, normalize=True)
-        img = torchvision.transforms.ToPILImage()(newGrid)
-        img.show()
+            # Start training for one cluster
+            startTime = time.time()
+            
+            trainDDPM(model=model, numClasses=numClusters, epochs=1600, batch_size=batch_size, numTimesteps=1000, dataset=letterSubset, label=modelLabel, transform=transform)
 
-        # Start training for one cluster
-        startTime = time.time()
-        trainDDPM(numClasses=numClusters, epochs=800, batch_size=512, numTimesteps=500, dataset=letterSubset, label=EMNISTDataset.intToStrDict[i])
-
-        print(f'Training finished after {time.time()-startTime}')
+            print(f'Training finished after {time.time()-startTime}')
 
 if __name__ == '__main__':
     main()
