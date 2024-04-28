@@ -19,23 +19,13 @@ class ClusterDataset(Dataset):
     
     def __init__(self, features: torch.Tensor, labels: torch.Tensor):
         
-
-        device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
-
-        # Send these to the GPU so they can be accessed immediately
         # Features is (N, C, 28, 28)
-        self.features = features.to(device)
-        self.labels = labels.to(device)
+        self.setFeaturesAndLabels(features, labels)
         
     def __len__(self):
         return len(self.features)
     
     def __getitem__(self, idx):
-        # This still seems to make things to to the CPU because it's a lot slower still
-        # with torch.cuda.device('cuda:0'):
-        # if self.transform is not None:
-        #     return self.transform(self.features[idx, ...]), self.labels[idx]
-        # else:
         return self.features[idx, ...], self.labels[idx]
         
         
@@ -125,28 +115,7 @@ class ClusterDataset(Dataset):
         self.setFeaturesAndLabels(normFeatures, labels)
         
         return mean, std
-    
-    
-    # def setTransform(self, transform:torchvision.transforms):
-        
-    #     """
-    #     Set the transform for the current dataset. This also accounts for normalization
-    #     """
-        
-    #     if transform is None:
-    #         self.transform = None
-    #         return
-        
-    #     mean, std = self._getNormalization(transform=transform)
-        
-    #     normTransform = torchvision.transforms.Compose(
-    #         transform.transforms #+
-    #         # Normalize before setting as the main transform
-    #         # [torchvision.transforms.Normalize(mean=mean, std=std)]
-    #     )
-        
-    #     self.transform = normTransform
-        
+
 
 
 class EMNISTDataset(Dataset):

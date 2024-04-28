@@ -159,10 +159,78 @@ class DDPM(nn.Module):
 
 
 
+def writeIntermediateResults(ddpm:DDPM, numClasses:int, guidanceStrengths:list, features:torch.Tensor, labels:torch.Tensor,
+                            numTimesteps:int, savePath:str, ep:int):
+    
+    
+    def animateGif(i, x_gen_store):
+        
+        print(f'gif animating frame {i} of {x_gen_store.shape[0]}', end='\r')
+        plots = []
+        for row in range(int(totalSamples/numClasses)):
+            for col in range(numClasses):
+                axs[row, col].clear()
+                axs[row, col].set_xticks([])
+                axs[row, col].set_yticks([])
+                # plots.append(axs[row, col].imshow(x_gen_store[i,(row*n_classes)+col,0],cmap='gray'))
+                plots.append(axs[row, col].imshow(-x_gen_store[i,(row*numClasses)+col,0],cmap='gray',vmin=(-x_gen_store[i]).min(), vmax=(-x_gen_store[i]).max()))
+        return plots
+    
+    
+    device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+
+    ddpm.eval()
+    with torch.no_grad():
+        numRows = 4
+        totalSamples = numRows * numClasses
+        for w_i, w in enumerate(guidanceStrengths):
+            x_gen, x_gen_store = ddpm.sample(totalSamples, (1, 28, 28), classifierGuidance=w)
+
+            # Append real samples at the bottom
+            x_real = torch.Tensor(x_gen.shape).to(device)
+            for k in range(numClasses):
+                for j in range(int(totalSamples/numClasses)):
+                    try: 
+                        idx = torch.squeeze((labels == k).nonzero())[j]
+                    except:
+                        idx = 0
+                    x_real[k + (j * numClasses)] = features[idx]
+
+            dataSuffix = f'ep-{ep}_w-{w}_nc-{numClasses}_ts-{numTimesteps}'
+            allSamples = torch.cat([x_gen, x_real])
+            grid = make_grid(-allSamples+1, nrow=numClasses)
+            imageName = f"{dataSuffix}.png"
+            save_image(grid, savePath + imageName)
+            print('Saved ' + savePath + imageName)
+
+            fig, axs = plt.subplots(nrows=int(totalSamples/numClasses), ncols=numClasses,sharex=True,sharey=True,figsize=(8,3))
+            
+            # TODO: Move this somewhere else, it's really weird to have it here
+            # def animateGif(i, x_gen_store):
+            #     print(f'gif animating frame {i} of {x_gen_store.shape[0]}', end='\r')
+            #     plots = []
+            #     for row in range(int(totalSamples/numClasses)):
+            #         for col in range(numClasses):
+            #             axs[row, col].clear()
+            #             axs[row, col].set_xticks([])
+            #             axs[row, col].set_yticks([])
+            #             # plots.append(axs[row, col].imshow(x_gen_store[i,(row*n_classes)+col,0],cmap='gray'))
+            #             plots.append(axs[row, col].imshow(-x_gen_store[i,(row*numClasses)+col,0],cmap='gray',vmin=(-x_gen_store[i]).min(), vmax=(-x_gen_store[i]).max()))
+            #     return plots
+            ani = FuncAnimation(fig, animateGif, fargs=[x_gen_store], interval=200, blit=False, repeat=True, frames=x_gen_store.shape[0])    
+            gifName = f"{dataSuffix}.gif"
+            ani.save(savePath + gifName, dpi=100, writer=PillowWriter(fps=5))
+            print('Saved ' + savePath + gifName)
+            plt.close('all')
+            print()
+            
+            return dataSuffix
 
 
 
-def trainDDPM(model, numClasses: int, epochs: int, batch_size: int, numTimesteps: int, dataset: Dataset, label: str, transform=None):
+
+
+def trainDDPM(model, numClasses: int, epochs: int, batch_size: int, numTimesteps: int, dataset: Dataset, label: str, transform=transforms.Compose([])):
     
     
     device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
@@ -210,8 +278,7 @@ def trainDDPM(model, numClasses: int, epochs: int, batch_size: int, numTimesteps
             features = transform(features)
             labels = labels
 
-            for param in ddpm.parameters():
-                param.grad = None
+            optim.zero_grad()
 
             with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=USE_AMP):
                 loss = ddpm(features, labels)
@@ -227,55 +294,85 @@ def trainDDPM(model, numClasses: int, epochs: int, batch_size: int, numTimesteps
         lrScheduler.step(loss.item())
 
         if (ep%200==0 or ep == int(epochs-1)) and ep != 0:
-            ddpm.eval()
-            with torch.no_grad():
-                numRows = 4
-                totalSamples = numRows * numClasses
-                for w_i, w in enumerate(guidanceStrengths):
-                    x_gen, x_gen_store = ddpm.sample(totalSamples, (1, 28, 28), classifierGuidance=w)
-
-                    # Append real samples at the bottom
-                    x_real = torch.Tensor(x_gen.shape).to(device)
-                    for k in range(numClasses):
-                        for j in range(int(totalSamples/numClasses)):
-                            try: 
-                                idx = torch.squeeze((labels == k).nonzero())[j]
-                            except:
-                                idx = 0
-                            x_real[k + (j * numClasses)] = features[idx]
-
-                    dataSuffix = f'{label}-ep-{ep}_w-{w}_nc-{numClasses}_ts-{numTimesteps}'
-                    allSamples = torch.cat([x_gen, x_real])
-                    grid = make_grid(-allSamples+1, nrow=numClasses)
-                    imageName = f"{dataSuffix}.png"
-                    save_image(grid, savePath + imageName)
-                    print('Saved ' + savePath + imageName)
-
-                    fig, axs = plt.subplots(nrows=int(totalSamples/numClasses), ncols=numClasses,sharex=True,sharey=True,figsize=(8,3))
-                    
-                    # TODO: Move this somewhere else, it's really weird to have it here
-                    def animateGif(i, x_gen_store):
-                        print(f'gif animating frame {i} of {x_gen_store.shape[0]}', end='\r')
-                        plots = []
-                        for row in range(int(totalSamples/numClasses)):
-                            for col in range(numClasses):
-                                axs[row, col].clear()
-                                axs[row, col].set_xticks([])
-                                axs[row, col].set_yticks([])
-                                # plots.append(axs[row, col].imshow(x_gen_store[i,(row*n_classes)+col,0],cmap='gray'))
-                                plots.append(axs[row, col].imshow(-x_gen_store[i,(row*numClasses)+col,0],cmap='gray',vmin=(-x_gen_store[i]).min(), vmax=(-x_gen_store[i]).max()))
-                        return plots
-                    ani = FuncAnimation(fig, animateGif, fargs=[x_gen_store], interval=200, blit=False, repeat=True, frames=x_gen_store.shape[0])    
-                    gifName = f"{dataSuffix}.gif"
-                    ani.save(savePath + gifName, dpi=100, writer=PillowWriter(fps=5))
-                    print('Saved ' + savePath + gifName)
-                    plt.close('all')
-                    print()
-                    
+            dataSuffix = writeIntermediateResults(ddpm, numClasses, guidanceStrengths, features, labels, numTimesteps, savePath, ep)
+        
         # optionally save model
         if save_model and ep == epochs-1:
             modelName = f"model-{dataSuffix}.pth"
             torch.save(ddpm.state_dict(), savePath + modelName)
+
+
+
+
+
+
+def fineTuneDDPM(ddpm: DDPM, numClasses: int, epochs: int, batch_size: int, numTimesteps: int, dataset: Dataset, label: str, transform=transforms.Compose([])):
+    
+    
+    device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+    
+    # Enable or disable automatic mixed precision for faster training
+    USE_AMP = True
+    lr = 1e-4
+    save_model = True
+    
+    savePath = f'./DiffusionData/{label}/'
+    
+    if not os.path.isdir(savePath):
+        os.mkdir(savePath)
+    
+    # CFG Guidance strength
+    guidanceStrengths = [0, 1, 2]
+    
+    ddpm.to(device)
+
+    # NOTE: DO NOT CHANGE num_workers>0 OR THE MODEL WON'T FUCKING TRAIN!!!!. WHY THE FUCK DOES THIS HAPPEN???!??!?!??!?!??!?!??!??!?!!!??!??!?!?
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=0, pin_memory=False)
+    optim = torch.optim.Adam(ddpm.parameters(), lr=lr)
+    lrScheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer=optim, factor=0.75, patience=40, cooldown=40)
+
+    scaler = torch.cuda.amp.GradScaler(enabled=USE_AMP)
+
+
+    pbar = tqdm(range(epochs))
+    for ep in pbar:
+        
+        ddpm.train()
+        newLR = optim.param_groups[0]['lr']
+
+        for features, labels in dataloader:
+            
+            # Apply transform manually on the GPU
+            features = transform(features)
+            labels = labels
+
+            optim.zero_grad()
+
+            with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=USE_AMP):
+                loss = ddpm(features, labels)
+            
+            scaler.scale(loss).backward() # Do backpropagation on scaled loss from AMP
+            scaler.unscale_(optim)
+            torch.nn.utils.clip_grad_norm_(ddpm.parameters(), max_norm=5)
+            scaler.step(optim)
+            scaler.update()
+            
+            pbar.set_description(f"loss: {loss.item():.4f}, lr: {newLR:.6f}")
+
+        lrScheduler.step(loss.item())
+
+        if (ep%200==0 or ep == int(epochs-1)) and ep != 0:
+            dataSuffix = writeIntermediateResults(ddpm, numClasses, guidanceStrengths, features, labels, numTimesteps, savePath, ep)
+
+        # optionally save model
+        if save_model and ep == epochs-1:
+            modelName = f"model-{dataSuffix}.pth"
+            torch.save(ddpm.state_dict(), savePath + modelName)
+
+
+
+
+
 
 
 

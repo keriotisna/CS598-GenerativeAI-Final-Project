@@ -12,6 +12,7 @@ from styleExtraction import *
 from DDPM import trainDDPM
 from UNet import *
 
+# Run a short benchmark before training to use the fastest convolution algorithm
 torch.backends.cudnn.benchmark = True
 
 # Kill debuggers for training
@@ -23,22 +24,28 @@ torch.autograd.profiler.profile(False)
 numClusters = 8
 
 MODEL_BATCHES = [
-    {
-        'model': UNetTiny(numClasses=numClusters),
-        'batch_size': 1024,
-        'modelName': 'Tiny',
-    },
+    # {
+    #     'model': UNetTiny(numClasses=numClusters),
+    #     'batch_size': 1024,
+    #     'modelName': 'Tiny',
+    # },
+    
+    # {
+    #     'model': UNetMedium(numClasses=numClusters),
+    #     'batch_size': 512,
+    #     'modelName': 'Medium',
+    # },
+    
+    # {
+    #     'model': UNetLarge(numClasses=numClusters),
+    #     'batch_size': 512,
+    #     'modelName': 'Large',
+    # }
     
     {
-        'model': UNetMedium(numClasses=numClusters),
-        'batch_size': 512,
-        'modelName': 'Medium',
-    },
-    
-    {
-        'model': UNetLarge(numClasses=numClusters),
-        'batch_size': 512,
-        'modelName': 'Large',
+        'model': UNetDeep(numClasses=numClusters),
+        'batch_size': 128,
+        'modelName': 'Deep',
     }
 ]
 
@@ -92,7 +99,7 @@ def main():
             # Start training for one cluster
             startTime = time.time()
             
-            trainDDPM(model=model, numClasses=numClusters, epochs=1600, batch_size=batch_size, numTimesteps=1000, dataset=letterSubset, label=modelLabel, transform=transform)
+            trainDDPM(model=model, numClasses=numClusters, epochs=800, batch_size=batch_size, numTimesteps=500, dataset=letterSubset, label=modelLabel, transform=transform)
 
             print(f'Training finished after {time.time()-startTime}')
 
