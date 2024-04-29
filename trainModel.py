@@ -48,11 +48,17 @@ MODEL_BATCHES = [
     #     'modelName': 'Deep',
     # },
     
+    # {
+    #     'model': UNetDeep2(numClasses=numClusters),
+    #     'batch_size': 256,
+    #     'modelName': 'Deep2',
+    # },
+    
     {
-        'model': UNetDeep2(numClasses=numClusters),
-        'batch_size': 256,
-        'modelName': 'Deep2',
-    }
+        'model': UNetDeepFullyConditional(numClasses=numClusters),
+        'batch_size': 128,
+        'modelName': 'DeepConditional1BigData',
+    },
 ]
 
 
@@ -63,7 +69,7 @@ def main():
     # Get a combined train and test set since validation is for losers
     trainset = getFullDataset()
 
-    targetClasses = np.arange(start=1, stop=2)
+    targetClasses = np.arange(start=1, stop=4)
 
     # Get formatted information about what data indices belong to what cluster
     CLUSTER_DATA = getClusterDataForLetters(trainset=trainset, numClusters=numClusters, showPlots=False, targetClasses=targetClasses)
@@ -99,9 +105,6 @@ def main():
                 transforms.Resize((28, 28)),
             ])
             
-            letterSubset.normalizeData(transform)
-            letterSubset.visualizeClusterDataset()
-
             # Start training for one cluster
             startTime = time.time()
             

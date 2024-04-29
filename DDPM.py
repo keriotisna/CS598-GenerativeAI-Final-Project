@@ -13,6 +13,7 @@ import numpy as np
 from torchvision import transforms
 
 from UNet import *
+from datasets import ClusterDataset
 
 
 
@@ -264,7 +265,7 @@ def writeIntermediateResults(ddpm:DDPM, guidanceStrengths:list, savePath:str, la
     with torch.no_grad():
         for w in guidanceStrengths:
             
-            dataPath = savePath + f'{label}_ep-{ep}_w-{w}_nc-{nc}_ts-{ts}'
+            dataPath = savePath + f'ep-{ep}_w-{w}_nc-{nc}_ts-{ts}'
             
             imFilename = dataPath + '.png'
             gifFilename = dataPath + '.gif'
@@ -289,9 +290,13 @@ def writeIntermediateResults(ddpm:DDPM, guidanceStrengths:list, savePath:str, la
 
 
 
-def trainDDPM(model, numClasses: int, epochs: int, batch_size: int, numTimesteps: int, dataset: Dataset, label: str, transform=transforms.Compose([]), betas=(1e-4, 0.02)):
+def trainDDPM(model, numClasses: int, epochs: int, batch_size: int, numTimesteps: int, dataset: ClusterDataset, label: str, transform=transforms.Compose([]), betas=(1e-4, 0.02)):
     
     device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+    
+    dataset.normalizeData(transform)
+    img = dataset.getClusterVisualizations()
+    img.show()
     
     # Enable or disable automatic mixed precision for faster training
     USE_AMP = True
@@ -356,9 +361,13 @@ def trainDDPM(model, numClasses: int, epochs: int, batch_size: int, numTimesteps
             torch.save(ddpm.state_dict(), savePath + modelName)
 
 
-def fineTuneDDPM(ddpm, numClasses: int, epochs: int, batch_size: int, numTimesteps: int, dataset: Dataset, label: str, transform=transforms.Compose([]), betas=(1e-4, 0.02)):
+def fineTuneDDPM(ddpm, numClasses: int, epochs: int, batch_size: int, numTimesteps: int, dataset: ClusterDataset, label: str, transform=transforms.Compose([]), betas=(1e-4, 0.02)):
     
     device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+    
+    dataset.normalizeData(transform)
+    img = dataset.getClusterVisualizations()
+    img.show()
     
     # Enable or disable automatic mixed precision for faster training
     USE_AMP = True
@@ -412,7 +421,7 @@ def fineTuneDDPM(ddpm, numClasses: int, epochs: int, batch_size: int, numTimeste
 
         lrScheduler.step(loss.item())
 
-        if (ep % 200 == 0 or ep == int(epochs-1)) and (ep != 0):
+        if (ep % 25 == 0 or ep == int(epochs-1)) and (ep != 0):
             writeIntermediateResults(ddpm, guidanceStrengths, savePath=savePath, label=label, ep=ep, nc=numClasses, ts=numTimesteps)
 
         # Save model

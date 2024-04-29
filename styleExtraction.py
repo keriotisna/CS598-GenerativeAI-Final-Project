@@ -60,9 +60,11 @@ def getClusterDataForLetters(trainset:EMNISTDataset, numClusters=12, gridSize=5,
         # pca = PCA(n_components=50)
         # features = pca.fit_transform(flat_images)
 
-        isomap = Isomap(n_components=20, n_jobs=-1, n_neighbors=20)
+        print('Embedding...')
+        isomap = Isomap(n_components=20, n_jobs=-1, n_neighbors=5, eigen_solver='arpack', path_method='D')
         features = isomap.fit_transform(flatImages)
         
+        print('Clustering...')
         # Cluster the data points
         kmeans = KMeans(n_clusters=numClusters, random_state=42)
         clusterLabels = kmeans.fit_predict(features)

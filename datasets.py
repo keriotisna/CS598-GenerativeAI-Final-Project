@@ -1,3 +1,4 @@
+import PIL.Image
 import torch
 from torch.utils.data import DataLoader, Dataset, Subset
 import pandas as pd
@@ -5,6 +6,7 @@ import pandas as pd
 import torchvision
 from torchvision.utils import make_grid
 import numpy as np
+import PIL
 
 
 class ClusterDataset(Dataset):
@@ -68,7 +70,7 @@ class ClusterDataset(Dataset):
         self.labels = labels.to(device)
 
     
-    def visualizeClusterDataset(self):
+    def getClusterVisualizations(self) -> PIL.Image.Image:
         
         """
         Visualize an entire ClusterDataset showing the individual samples in their clusters.
@@ -92,7 +94,8 @@ class ClusterDataset(Dataset):
         fullImage = torch.stack(clusterImages, dim=0).unsqueeze(1)
         newGrid = make_grid(fullImage, nrow=len(clusterImages)//2, normalize=True)
         img = torchvision.transforms.ToPILImage()(newGrid)
-        img.show()
+        # img.show()
+        return img
     
     
     def normalizeData(self, transform:torchvision.transforms):
@@ -156,6 +159,80 @@ class EMNISTDataset(Dataset):
     
 
 
+
+
+
+class EMNISTDatasetByClass(EMNISTDataset):
+    
+    """
+    The EMNIST handwritten dataset sourced from:
+    https://www.kaggle.com/datasets/crawford/emnist
+    
+    This is a larger class-unbalanced letter dataset
+    """
+    
+    # A dict to convert from integer labels to string representations
+    intToStrDict = {1: 'a', 2: 'b', 3: 'c', 4: 'd', 5: 'e', 6: 'f', 7: 'g', 8: 'h', 9: 'i', 10: 'j', 11: 'k', 12: 'l', 13: 'm', 14: 'n', 15: 'o', 16: 'p', 17: 'q', 18: 'r', 19: 's', 20: 't', 21: 'u', 22: 'v', 23: 'w', 24: 'x', 25: 'y', 26: 'z'}
+    
+    _TRAIN_CSV = 'Data\EMNIST\emnist-byclass-train.csv'
+    _TEST_CSV = 'Data\EMNIST\emnist-byclass-test.csv'
+    
+    def __init__(self, csvFile=None, images=None, labels=None):
+        
+        if csvFile is not None:
+            self.data = pd.read_csv(csvFile, header=None)
+        
+        if images is None:
+            self.images = torch.Tensor(self.data.iloc[:, 1:].values.reshape(-1, 1, 28, 28, order='A')).to(torch.float32)
+        else: self.images = images
+
+        if labels is None:
+            self.labels = torch.Tensor(self.data.iloc[:, 0].values).to(torch.int16)
+        else:
+            self.labels = labels
+            
+        # Get only letter samples and indices, then reindex to start from 0 instead.
+        letterIndices = np.arange(10, 62)
+        
+        selectedImages = []
+        selectedLabels = []
+        
+        for validIdx in letterIndices:
+            
+            selectedImages.append(self.images[self.labels == validIdx])
+            selectedLabels.append(self.labels[self.labels == validIdx])
+
+        capitalImages = selectedImages[:26]
+        capitalLabels = selectedLabels[:26]
+        
+        lowerImages = selectedImages[26:]
+        lowerLabels = selectedLabels[26:]
+
+        del selectedImages, selectedLabels
+        
+        allLetters = []
+        allLabels = []
+        
+        for cI, cL, lI, lL in zip(capitalImages, capitalLabels, lowerImages, lowerLabels):
+            
+            combinedImages = torch.concat((cI, lI), dim=0)
+            cL = cL - 9 # One index the capital labels since index of a=1
+            lL = lL - (9+26) # One index the lowercase labels
+            
+            combinedLabels = torch.concat((cL, lL), dim=0)
+            
+            allLetters.append(combinedImages)
+            allLabels.append(combinedLabels)
+
+        self.images = torch.concat(allLetters, dim=0)
+        self.labels = torch.concat(allLabels, dim=0)
+
+
+
+
+
+
+
 def createSubsets(dataset, clusterData) -> dict[ClusterDataset]:
     
     """
@@ -191,7 +268,7 @@ def createSubsets(dataset, clusterData) -> dict[ClusterDataset]:
     return subsets
 
 
-def getFullDataset():
+def getFullDataset(useUnbalanced=False):
     
     """
     Gets and combines the training, validation and test datasets into a single larger dataset that can be used
@@ -199,8 +276,12 @@ def getFullDataset():
     We don't need training or validation sets and really just need the raw data
     """
     
-    trainset = EMNISTDataset(EMNISTDataset._TRAIN_CSV)
-    testset = EMNISTDataset(EMNISTDataset._TEST_CSV)
+    if not useUnbalanced:
+        trainset = EMNISTDataset(EMNISTDataset._TRAIN_CSV)
+        testset = EMNISTDataset(EMNISTDataset._TEST_CSV)
+    else:
+        trainset = EMNISTDatasetByClass(EMNISTDatasetByClass._TRAIN_CSV)
+        testset = EMNISTDatasetByClass(EMNISTDatasetByClass._TEST_CSV)
 
     traindata = trainset.images
     trainlabels = trainset.labels
