@@ -85,7 +85,7 @@ class ClusterDataset(Dataset):
             grid = make_grid(currentFeatures, nrow=int(np.sqrt(currentFeatures.shape[0])), normalize=True)
             
             t = torchvision.transforms.Compose([
-                torchvision.transforms.Resize((512, 512))
+                torchvision.transforms.Resize((1024, 1024))
             ])
             
             # grid is (3, 28, 28) so average to get grayscale

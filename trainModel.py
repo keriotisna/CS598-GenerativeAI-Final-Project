@@ -21,7 +21,7 @@ torch.autograd.profiler.emit_nvtx(False)
 torch.autograd.profiler.profile(False)
 
 
-numClusters = 8
+numClusters = 16
 
 MODEL_BATCHES = [
     # {
@@ -67,9 +67,9 @@ def main():
 
     
     # Get a combined train and test set since validation is for losers
-    trainset = getFullDataset()
+    trainset = getFullDataset(useUnbalanced=True)
 
-    targetClasses = np.arange(start=1, stop=4)
+    targetClasses = [9, 14] # [1, 7] # 
 
     # Get formatted information about what data indices belong to what cluster
     CLUSTER_DATA = getClusterDataForLetters(trainset=trainset, numClusters=numClusters, showPlots=False, targetClasses=targetClasses)
@@ -97,9 +97,9 @@ def main():
             
             # TODO: Try more transforms
             randomRotation = transforms.RandomApply([transforms.RandomRotation((-10, 10))])
-            randomBlur = transforms.RandomApply([transforms.GaussianBlur(kernel_size=5, sigma=(0.3, 0.6))], p=0.25)
+            randomBlur = transforms.RandomApply([transforms.GaussianBlur(kernel_size=5, sigma=(0.3, 0.5))], p=0.25)
             transform = transforms.Compose([
-                randomRotation,
+                # randomRotation,
                 randomBlur,
                 transforms.RandomAffine(degrees=(0, 0), translate=(0.05, 0.1), scale=(0.9, 1.1)),
                 transforms.Resize((28, 28)),
@@ -108,7 +108,7 @@ def main():
             # Start training for one cluster
             startTime = time.time()
             
-            trainDDPM(model=model, numClasses=numClusters, epochs=800, batch_size=batch_size, numTimesteps=500, dataset=letterSubset, label=modelLabel, transform=transform, betas=(1e-4, 0.02))
+            trainDDPM(model=model, numClasses=numClusters, epochs=150, batch_size=batch_size, numTimesteps=500, dataset=letterSubset, label=modelLabel, transform=transform, betas=(1e-4, 0.02))
 
             print(f'Training finished after {time.time()-startTime}')
 

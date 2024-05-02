@@ -11,7 +11,7 @@ from collections import defaultdict
 
 from datasets import EMNISTDataset
 
-
+import umap
 
 def getClusterDataForLetters(trainset:EMNISTDataset, numClusters=12, gridSize=5, targetClasses=np.arange(start=1, stop=28), showPlots=False, getMappingInfo=False):
 
@@ -61,8 +61,11 @@ def getClusterDataForLetters(trainset:EMNISTDataset, numClusters=12, gridSize=5,
         # features = pca.fit_transform(flat_images)
 
         print('Embedding...')
-        isomap = Isomap(n_components=20, n_jobs=-1, n_neighbors=5, eigen_solver='arpack', path_method='D')
-        features = isomap.fit_transform(flatImages)
+        # embedding = Isomap(n_components=20, n_jobs=-1, n_neighbors=5, eigen_solver='arpack', path_method='D')
+        # features = embedding.fit_transform(flatImages)
+        
+        embedding = umap.UMAP(n_neighbors=40, n_components=30)
+        features = embedding.fit_transform(flatImages)
         
         print('Clustering...')
         # Cluster the data points
@@ -74,7 +77,7 @@ def getClusterDataForLetters(trainset:EMNISTDataset, numClusters=12, gridSize=5,
         # clusterLabels = spectralClusters.fit_predict(features)
 
         CLUSTERINGS[letterIdx] = kmeans
-        REDUCTIONS[letterIdx] = isomap
+        REDUCTIONS[letterIdx] = embedding
 
         clusterPopulations = []
         

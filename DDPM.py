@@ -320,7 +320,7 @@ def trainDDPM(model, numClasses: int, epochs: int, batch_size: int, numTimesteps
     # NOTE: DO NOT CHANGE num_workers>0 OR THE MODEL WON'T FUCKING TRAIN!!!!. WHY THE FUCK DOES THIS HAPPEN???!??!?!??!?!??!?!??!??!?!!!??!??!?!?
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=0, pin_memory=False)
     optim = torch.optim.Adam(ddpm.parameters(), lr=lr)
-    lrScheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer=optim, factor=0.75, patience=40, cooldown=40)
+    lrScheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer=optim, factor=0.75, patience=20, cooldown=20)
 
     scaler = torch.cuda.amp.GradScaler(enabled=USE_AMP)
 
@@ -352,12 +352,12 @@ def trainDDPM(model, numClasses: int, epochs: int, batch_size: int, numTimesteps
 
         lrScheduler.step(loss.item())
 
-        if (ep % 200 == 0 or ep == int(epochs-1)) and (ep != 0):
+        if (ep % 50 == 0 or ep == int(epochs-1)) and (ep != 0):
             writeIntermediateResults(ddpm, guidanceStrengths, savePath=savePath, label=label, ep=ep, nc=numClasses, ts=numTimesteps)
 
         # Save model
         if saveModel and ep == epochs-1:
-            modelName = f"model-{label}.pth"
+            modelName = f"model.pth"
             torch.save(ddpm.state_dict(), savePath + modelName)
 
 
@@ -426,7 +426,7 @@ def fineTuneDDPM(ddpm, numClasses: int, epochs: int, batch_size: int, numTimeste
 
         # Save model
         if saveModel and ep == epochs-1:
-            modelName = f"model-{label}.pth"
+            modelName = f"model.pth"
             torch.save(ddpm.state_dict(), savePath + modelName)
 
 
